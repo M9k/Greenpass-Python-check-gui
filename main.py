@@ -8,25 +8,20 @@ import zlib
 import base45
 import cbor2
 from pyzbar import pyzbar
-from cose.messages import CoseMessage
 from base64 import b64decode, b64encode
 
-from cose.algorithms import Es256
 from cose.keys.curves import P256
-from cose.algorithms import Es256, EdDSA, Ps256
-from cose.headers import KID, Algorithm
+from cose.algorithms import Es256, Ps256
+from cose.headers import KID
 from cose.keys import CoseKey
 from cose.keys.keyparam import KpAlg, EC2KpX, EC2KpY, EC2KpCurve, RSAKpE, RSAKpN
 from cose.keys.keyparam import KpKty
 from cose.keys.keytype import KtyEC2, KtyRSA
 from cose.messages import CoseMessage
-from cryptography import x509
 from cryptography.utils import int_to_bytes
-from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric.ec import EllipticCurvePublicKey
 from cryptography.hazmat.primitives.asymmetric.rsa import RSAPublicKey
 from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric import ec
 
 import wx
 
@@ -41,7 +36,7 @@ valuesets = {}
 
 class Frame(wx.Frame):
     def __init__(self, title, text):
-        wx.Frame.__init__(self, None, title=title, size=(300,200))
+        wx.Frame.__init__(self, None, title=title, size=(300, 200))
 
         self.panel = wx.Panel(self)
         box = wx.BoxSizer(wx.VERTICAL)
@@ -59,8 +54,9 @@ class Frame(wx.Frame):
     def onClose(self, event):
         self.Close()
 
-def checkGreenpass(greenpassCode):
-    payload = greenpassCode[4:]
+
+def checkGreenpass(greenpasscode):
+    payload = greenpasscode[4:]
     try:
         decoded = base45.b45decode(payload)
     except:
@@ -68,15 +64,15 @@ def checkGreenpass(greenpassCode):
     decompressed = zlib.decompress(decoded)
     cose = CoseMessage.decode(decompressed)
     valid = signature_valid(cose)
-    greenpassData = cbor2.loads(cose.payload)
+    greenpassdata = cbor2.loads(cose.payload)
     app = wx.App(redirect=True)
-    cognome = greenpassData[-260][1]['nam']['fnt']
-    nome = greenpassData[-260][1]['nam']['gnt']
-    datanascita = greenpassData[-260][1]['dob']
+    cognome = greenpassdata[-260][1]['nam']['fnt']
+    nome = greenpassdata[-260][1]['nam']['gnt']
+    datanascita = greenpassdata[-260][1]['dob']
     if valid:
-    	top = Frame('Greenpass valido', text=cognome + ' ' + nome + ' ' + datanascita)
+        top = Frame('Greenpass valido', text=cognome + ' ' + nome + ' ' + datanascita)
     else:
-    	top = Frame('Greenpass NON valido!!', cognome + ' ' + nome + ' ' + datanascita)
+        top = Frame('Greenpass NON valido!!', cognome + ' ' + nome + ' ' + datanascita)
     top.Show()
     app.MainLoop()
 
@@ -86,55 +82,58 @@ def add_kid(kid_b64, key_b64):
     asn1data = b64decode(key_b64)
 
     pub = serialization.load_der_public_key(asn1data)
-    if (isinstance(pub, RSAPublicKey)):
+    if isinstance(pub, RSAPublicKey):
         kids[kid_b64] = CoseKey.from_dict(
-        {
-            KpKty: KtyRSA,
-            KpAlg: Ps256,  # RSSASSA-PSS-with-SHA-256-and-MFG1
-            RSAKpE: int_to_bytes(pub.public_numbers().e),
-            RSAKpN: int_to_bytes(pub.public_numbers().n)
-        })
-    elif (isinstance(pub, EllipticCurvePublicKey)):
+            {
+                KpKty: KtyRSA,
+                KpAlg: Ps256,  # RSSASSA-PSS-with-SHA-256-and-MFG1
+                RSAKpE: int_to_bytes(pub.public_numbers().e),
+                RSAKpN: int_to_bytes(pub.public_numbers().n)
+            })
+    elif isinstance(pub, EllipticCurvePublicKey):
         kids[kid_b64] = CoseKey.from_dict(
-        {
-            KpKty: KtyEC2,
-            EC2KpCurve: P256,  # Ought o be pk.curve - but the two libs clash
-            KpAlg: Es256,  # ecdsa-with-SHA256
-            EC2KpX: pub.public_numbers().x.to_bytes(32, byteorder="big"),
-            EC2KpY: pub.public_numbers().y.to_bytes(32, byteorder="big")
-        })
+            {
+                KpKty: KtyEC2,
+                EC2KpCurve: P256,  # Ought o be pk.curve - but the two libs clash
+                KpAlg: Es256,  # ecdsa-with-SHA256
+                EC2KpX: pub.public_numbers().x.to_bytes(32, byteorder="big"),
+                EC2KpY: pub.public_numbers().y.to_bytes(32, byteorder="big")
+            })
     else:
-        print(f"Skipping unexpected/unknown key type (keyid={kid_b64}, {pub.__class__.__name__}).",  file=sys.stderr)
-			  
+        print(f"Skipping unexpected/unknown key type (keyid={kid_b64}, {pub.__class__.__name__}).", file=sys.stderr)
+
+
 def load_pub_keys():
-    #keys = urlopen('https://verifier-api.coronacheck.nl/v4/verifier/public_keys')
+    # keys = urlopen('https://verifier-api.coronacheck.nl/v4/verifier/public_keys')
     keys = open('public_keys.json')
     pkg = json.load(keys)
     payload = b64decode(pkg['payload'])
     trustlist = json.loads(payload)
     eulist = trustlist['eu_keys']
     for kid_b64 in eulist:
-        add_kid(kid_b64,eulist[kid_b64][0]['subjectPk'])
+        add_kid(kid_b64, eulist[kid_b64][0]['subjectPk'])
+
 
 def signature_valid(cose):
     given_kid = None
     if KID in cose.phdr.keys():
-       given_kid = cose.phdr[KID]
+        given_kid = cose.phdr[KID]
     else:
-       given_kid = cose.uhdr[KID]
+        given_kid = cose.uhdr[KID]
 
     given_kid_b64 = b64encode(given_kid).decode('ASCII')
 
-    if not given_kid_b64 in kids:
-        return False
-    else:
-        key  = kids[given_kid_b64]
+    if given_kid_b64 in kids:
+        key = kids[given_kid_b64]
 
         cose.key = key
         if not cose.verify_signature():
             return False
         else:
             return True
+    else:
+        return False
+
 
 # --- MAIN ---
 # define a video capture object
@@ -146,14 +145,14 @@ load_pub_keys()
 while True:
     ret, frame = vid.read()
 
-    frameResized = cv2.resize(frame, (resX, resY), interpolation = cv2.INTER_AREA)
+    frameResized = cv2.resize(frame, (resX, resY), interpolation=cv2.INTER_AREA)
     cv2.imshow('Verifica Greenpass', frameResized)
     cv2.resizeWindow('Verifica Greenpass', resX, resY)
-	
-	# Decode the QR Code
-    mask = cv2.inRange(frame,(0,0,0),(200,200,200))
-    thresholded = cv2.cvtColor(mask,cv2.COLOR_GRAY2BGR)
-    inverted = 255-thresholded # black-in-white
+
+    # Decode the QR Code
+    mask = cv2.inRange(frame, (0, 0, 0), (200, 200, 200))
+    thresholded = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR)
+    inverted = 255 - thresholded  # black-in-white
     barcodes = pyzbar.decode(inverted)
     if debug:
         cv2.imshow('Verifica Greenpass', inverted)
@@ -163,7 +162,7 @@ while True:
         if debug:
             print(greenpassCode)
         checkGreenpass(greenpassCode)
-	# Press q to quit
+    # Press q to quit
     if cv2.waitKey(1) & 0xFF == ord('q'):
         break
 
