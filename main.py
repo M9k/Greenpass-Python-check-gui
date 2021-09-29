@@ -10,6 +10,8 @@ import cbor2
 from pyzbar import pyzbar
 from base64 import b64decode, b64encode
 
+import time
+
 from cose.keys.curves import P256
 from cose.algorithms import Es256, Ps256
 from cose.headers import KID
@@ -145,26 +147,27 @@ load_pub_keys()
 while True:
     ret, frame = vid.read()
 
-    frameResized = cv2.resize(frame, (resX, resY), interpolation=cv2.INTER_AREA)
-    cv2.imshow('Verifica Greenpass', frameResized)
-    cv2.resizeWindow('Verifica Greenpass', resX, resY)
-
     # Decode the QR Code
     mask = cv2.inRange(frame, (0, 0, 0), (200, 200, 200))
     thresholded = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR)
     inverted = 255 - thresholded  # black-in-white
     barcodes = pyzbar.decode(inverted)
-    if debug:
-        cv2.imshow('Verifica Greenpass', inverted)
-        print(barcodes)
     if barcodes:
         greenpassCode = str(barcodes[0].data)[2:-1]
         if debug:
             print(greenpassCode)
         checkGreenpass(greenpassCode)
+    time.sleep(0.01)
     # Press q to quit
-    if cv2.waitKey(1) & 0xFF == ord('q'):
+    if cv2.waitKey(1) == ord("q"):
         break
+
+    frameResized = cv2.resize(frame, (resX, resY), interpolation=cv2.INTER_AREA)
+    cv2.imshow('Verifica Greenpass', frameResized)
+    cv2.resizeWindow('Verifica Greenpass', resX, resY)
+    if debug:
+        cv2.imshow('Verifica Greenpass', inverted)
+        print(barcodes)
 
 # After the loop release the cap object
 vid.release()
